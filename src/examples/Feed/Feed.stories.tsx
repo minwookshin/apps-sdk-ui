@@ -1,5 +1,15 @@
 import type { Meta } from "@storybook/react"
-import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import {
+  forwardRef,
+  useEffect,
+  useId,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react"
 import { Alert } from "../../components/Alert"
 import { Avatar } from "../../components/Avatar"
 import { Button } from "../../components/Button"
@@ -34,6 +44,24 @@ const posts: Post[] = [
   },
 ]
 
+// Menu needs a native trigger ref, including with React 18's ref forwarding.
+const FeedMenuButton = forwardRef<HTMLButtonElement, ComponentProps<typeof Button>>(
+  (props, ref) => {
+    const container = useRef<HTMLSpanElement>(null)
+    useImperativeHandle(
+      ref,
+      () => container.current!.querySelector<HTMLButtonElement>("button")!,
+      [],
+    )
+    return (
+      <span ref={container} className="contents">
+        <Button {...props} />
+      </span>
+    )
+  },
+)
+FeedMenuButton.displayName = "FeedMenuButton"
+
 // A composition example, not a new exported library component.
 export const FeedItemExample = ({ post }: { post: Post }) => {
   const id = useId()
@@ -45,28 +73,30 @@ export const FeedItemExample = ({ post }: { post: Post }) => {
   const [replies, setReplies] = useState<{ id: number; text: string }[]>([])
   const [status, setStatus] = useState("")
   const nextReplyId = useRef(0)
-  const replyButtonRef = useRef<HTMLButtonElement>(null)
-  const menuButtonRef = useRef<HTMLButtonElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const cancelReportRef = useRef<HTMLButtonElement>(null)
+  const articleRef = useRef<HTMLElement>(null)
   const composing = useRef(false)
   const reportAfterMenuClose = useRef(false)
   const likeCount = post.likes + Number(liked)
 
   useEffect(() => {
     if (panel !== "reply") composing.current = false
-    if (panel === "reply") textareaRef.current?.focus()
-    if (panel === "report") cancelReportRef.current?.focus()
+    const target =
+      panel === "reply"
+        ? "textarea"
+        : panel === "report"
+          ? '[data-feed-action="cancel-report"]'
+          : undefined
+    if (target) articleRef.current?.querySelector<HTMLElement>(target)?.focus()
   }, [panel])
 
   const closePanel = () => {
-    const trigger = panel === "reply" ? replyButtonRef : menuButtonRef
+    const trigger = panel === "reply" ? "reply" : "menu"
     if (panel === "reply" && draft.trim()) {
       setStatus("Draft kept. Choose Reply to continue writing.")
     }
     setPanel(null)
     composing.current = false
-    trigger.current?.focus()
+    articleRef.current?.querySelector<HTMLButtonElement>(`[data-feed-action="${trigger}"]`)?.focus()
   }
 
   const handleEscape = (event: KeyboardEvent<HTMLElement>) => {
@@ -91,11 +121,11 @@ export const FeedItemExample = ({ post }: { post: Post }) => {
     setDraft("")
     setPanel(null)
     setStatus("Reply added.")
-    replyButtonRef.current?.focus()
+    articleRef.current?.querySelector<HTMLButtonElement>('[data-feed-action="reply"]')?.focus()
   }
 
   return (
-    <article aria-labelledby={`${id}-author`} className="min-w-0 py-5">
+    <article ref={articleRef} aria-labelledby={`${id}-author`} className="min-w-0 py-5">
       <header className="flex items-center gap-3">
         <span aria-hidden="true" className="shrink-0">
           <Avatar name={post.author} size={36} />
@@ -140,11 +170,11 @@ export const FeedItemExample = ({ post }: { post: Post }) => {
           variant="ghost"
           size="2xl"
           gutterSize="xs"
-          ref={replyButtonRef}
+          data-feed-action="reply"
           onClick={() => {
             setPanel("reply")
             setStatus("")
-            textareaRef.current?.focus()
+            articleRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus()
           }}
         >
           <Chat aria-hidden="true" />
@@ -160,23 +190,22 @@ export const FeedItemExample = ({ post }: { post: Post }) => {
         <div className="ms-auto">
           <Menu>
             <Menu.Trigger>
-              <Button
+              <FeedMenuButton
                 aria-label={`More actions for post by ${post.author}`}
                 color="secondary"
                 variant="ghost"
                 size="2xl"
                 uniform
-                ref={menuButtonRef}
+                data-feed-action="menu"
                 onFocus={() => {
                   if (reportAfterMenuClose.current) {
                     reportAfterMenuClose.current = false
                     setPanel("report")
-                    cancelReportRef.current?.focus()
                   }
                 }}
               >
                 <DotsHorizontal aria-hidden="true" />
-              </Button>
+              </FeedMenuButton>
             </Menu.Trigger>
             <Menu.Content align="end" minWidth={180}>
               <Menu.CheckboxItem
@@ -244,7 +273,6 @@ export const FeedItemExample = ({ post }: { post: Post }) => {
             name="reply"
             value={draft}
             onChange={(event) => setDraft(event.currentTarget.value)}
-            ref={textareaRef}
             placeholder={`Reply to ${post.author}…`}
             rows={3}
             autoResize
@@ -287,7 +315,7 @@ export const FeedItemExample = ({ post }: { post: Post }) => {
                   color="secondary"
                   variant="ghost"
                   size="xl"
-                  ref={cancelReportRef}
+                  data-feed-action="cancel-report"
                   onClick={closePanel}
                 >
                   Cancel
